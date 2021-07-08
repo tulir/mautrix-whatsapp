@@ -60,6 +60,12 @@ type Config struct {
 			Avatar      string `yaml:"avatar"`
 		} `yaml:"bot"`
 
+		Limits struct {
+			MaxPuppetLimit      uint `yaml:"max_puppet_limit"`
+			MinPuppetActiveDays uint `yaml:"min_puppet_activity_days"`
+			BlockOnLimitReached bool `yaml:"block_on_limit_reached"`
+		} `yaml:"limits"`
+
 		ASToken string `yaml:"as_token"`
 		HSToken string `yaml:"hs_token"`
 	} `yaml:"appservice"`
@@ -93,6 +99,9 @@ func (config *Config) CanDoublePuppet(userID id.UserID) bool {
 func (config *Config) setDefaults() {
 	config.AppService.Database.MaxOpenConns = 20
 	config.AppService.Database.MaxIdleConns = 2
+	config.AppService.Limits.MaxPuppetLimit = 0
+	config.AppService.Limits.MinPuppetActiveDays = 0
+	config.AppService.Limits.BlockOnLimitReached = false
 	config.WhatsApp.OSName = "Mautrix-WhatsApp bridge"
 	config.WhatsApp.BrowserName = "mx-wa"
 	config.Bridge.setDefaults()

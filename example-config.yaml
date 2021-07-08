@@ -54,6 +54,15 @@ appservice:
     as_token: "This value is generated when generating the registration"
     hs_token: "This value is generated when generating the registration"
 
+    # Limit usage of the bridge
+    limits:
+        # The maximum number of bridge puppets that can be "active" before the limit is reached
+        max_puppet_limit: 0
+        # The minimum amount of days a puppet must be active for before they are considered "active".
+        min_puppet_activity_days: 0
+        # Should the bridge block traffic when a limit has been reached
+        block_on_limit_reached: false
+
 metrics:
     # Whether or not to enable prometheus metrics
     enabled: false

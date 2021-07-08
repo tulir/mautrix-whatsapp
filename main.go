@@ -41,6 +41,8 @@ import (
 	"maunium.net/go/mautrix-whatsapp/database/upgrades"
 )
 
+const ONE_DAY_S = 24 * 60 * 60
+
 var (
 	// These are static
 	Name = "mautrix-whatsapp"
@@ -48,7 +50,7 @@ var (
 	// This is changed when making a release
 	Version = "0.1.7"
 	// This is filled by init()
-	WAVersion = ""
+	WAVersion     = ""
 	VersionString = ""
 	// These are filled at build time with the -X linker flag
 	Tag       = "unknown"
@@ -148,6 +150,7 @@ type Bridge struct {
 	Relaybot       *User
 	Crypto         Crypto
 	Metrics        *MetricsHandler
+	PuppetActivity *PuppetActivity
 
 	usersByMXID         map[id.UserID]*User
 	usersByJID          map[whatsapp.JID]*User
@@ -182,6 +185,10 @@ func NewBridge() *Bridge {
 		portalsByJID:        make(map[database.PortalKey]*Portal),
 		puppets:             make(map[whatsapp.JID]*Puppet),
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
+		PuppetActivity: &PuppetActivity{
+			currentUserCount: 0,
+			isBlocked:        false,
+		},
 	}
 
 	var err error
@@ -222,7 +229,6 @@ func (bridge *Bridge) Init() {
 	}
 	_, _ = bridge.AS.Init()
 	bridge.Bot = bridge.AS.BotIntent()
-
 	bridge.Log = log.Create()
 	bridge.Config.Logging.Configure(bridge.Log)
 	log.DefaultLogger = bridge.Log.(*log.BasicLogger)
@@ -270,7 +276,35 @@ func (bridge *Bridge) Init() {
 	bridge.MatrixHandler = NewMatrixHandler(bridge)
 	bridge.Formatter = NewFormatter(bridge)
 	bridge.Crypto = NewCryptoHelper(bridge)
-	bridge.Metrics = NewMetricsHandler(bridge.Config.Metrics.Listen, bridge.Log.Sub("Metrics"), bridge.DB)
+	bridge.Metrics = NewMetricsHandler(bridge.Config.Metrics.Listen, bridge.Log.Sub("Metrics"), bridge.DB, bridge.PuppetActivity)
+}
+
+func (mh *Bridge) UpdateActivePuppetCount() {
+	mh.Log.Debugfln("Updating active puppet count")
+
+	var minActivityTime = int64(ONE_DAY_S * mh.Config.AppService.Limits.MinPuppetActiveDays)
+	var activePuppetCount uint
+	var firstActivityTs, lastActivityTs int64
+
+	rows, active_err := mh.DB.Query("SELECT first_activity_ts, last_activity_ts FROM puppet WHERE first_activity_ts is not NULL")
+	if active_err != nil {
+		mh.Log.Warnln("Failed to scan number of active puppets:", active_err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			rows.Scan(&firstActivityTs, &lastActivityTs)
+			var secondsOfActivity = lastActivityTs - firstActivityTs
+			if secondsOfActivity > minActivityTime {
+				activePuppetCount++
+			}
+		}
+		if mh.Config.AppService.Limits.BlockOnLimitReached {
+			mh.PuppetActivity.isBlocked = mh.Config.AppService.Limits.MaxPuppetLimit < activePuppetCount
+		}
+		mh.Log.Debugfln("Current active puppet count is %d (max %d)", activePuppetCount, mh.Config.AppService.Limits.MaxPuppetLimit)
+		mh.PuppetActivity.currentUserCount = activePuppetCount
+	}
+
 }
 
 func (bridge *Bridge) Start() {
@@ -303,6 +337,7 @@ func (bridge *Bridge) Start() {
 		go bridge.Crypto.Start()
 	}
 	go bridge.StartUsers()
+	bridge.UpdateActivePuppetCount()
 	if bridge.Config.Metrics.Enabled {
 		go bridge.Metrics.Start()
 	}

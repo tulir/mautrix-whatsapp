@@ -36,9 +36,10 @@ import (
 )
 
 type MetricsHandler struct {
-	db     *database.Database
-	server *http.Server
-	log    log.Logger
+	db             *database.Database
+	server         *http.Server
+	log            log.Logger
+	puppetActivity *PuppetActivity
 
 	running      bool
 	ctx          context.Context
@@ -50,6 +51,8 @@ type MetricsHandler struct {
 	countCollection         prometheus.Histogram
 	disconnections          *prometheus.CounterVec
 	puppetCount             prometheus.Gauge
+	activePuppetCount       prometheus.Gauge
+	bridgeBlocked           prometheus.Gauge
 	userCount               prometheus.Gauge
 	messageCount            prometheus.Gauge
 	portalCount             *prometheus.GaugeVec
@@ -67,17 +70,17 @@ type MetricsHandler struct {
 	bufferLength    *prometheus.GaugeVec
 }
 
-func NewMetricsHandler(address string, log log.Logger, db *database.Database) *MetricsHandler {
+func NewMetricsHandler(address string, log log.Logger, db *database.Database, puppetActivity *PuppetActivity) *MetricsHandler {
 	portalCount := promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "whatsapp_portals_total",
 		Help: "Number of portal rooms on Matrix",
 	}, []string{"type", "encrypted"})
 	return &MetricsHandler{
-		db:      db,
-		server:  &http.Server{Addr: address, Handler: promhttp.Handler()},
-		log:     log,
-		running: false,
-
+		db:             db,
+		server:         &http.Server{Addr: address, Handler: promhttp.Handler()},
+		log:            log,
+		running:        false,
+		puppetActivity: puppetActivity,
 		matrixEventHandling: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "matrix_event",
 			Help: "Time spent processing Matrix events",
@@ -102,6 +105,14 @@ func NewMetricsHandler(address string, log log.Logger, db *database.Database) *M
 		puppetCount: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "whatsapp_puppets_total",
 			Help: "Number of WhatsApp users bridged into Matrix",
+		}),
+		activePuppetCount: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "whatsapp_active_puppets_total",
+			Help: "Number of active WhatsApp users bridged into Matrix",
+		}),
+		bridgeBlocked: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "whatsapp_bridge_blocked",
+			Help: "Is the bridge currently blocking messages",
 		}),
 		userCount: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "whatsapp_users_total",
@@ -236,6 +247,13 @@ func (mh *MetricsHandler) updateStats() {
 		mh.log.Warnln("Failed to scan number of puppets:", err)
 	} else {
 		mh.puppetCount.Set(float64(puppetCount))
+	}
+
+	mh.activePuppetCount.Set(float64(mh.puppetActivity.currentUserCount))
+	if mh.puppetActivity.isBlocked {
+		mh.bridgeBlocked.Set(1)
+	} else {
+		mh.bridgeBlocked.Set(0)
 	}
 
 	var userCount int

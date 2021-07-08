@@ -254,6 +254,10 @@ func (portal *Portal) handleMessage(msg PortalMessage, isBackfill bool) {
 		portal.log.Warnln("handleMessage called even though portal.MXID is empty")
 		return
 	}
+	if portal.bridge.PuppetActivity.isBlocked {
+		portal.log.Warnln("Bridge is blocking messages")
+		return
+	}
 	var triedToHandle bool
 	var trackMessageCallback func()
 	dataType := reflect.TypeOf(msg.data)
@@ -1393,6 +1397,9 @@ func (portal *Portal) HandleTextMessage(source *User, message whatsapp.TextMessa
 	} else {
 		portal.finishHandling(source, message.Info.Source, resp.EventID)
 	}
+	sender := portal.bridge.GetPuppetByJID(message.Info.SenderJid)
+	sender.UpdateActivityTs(message.Info.Timestamp)
+	portal.bridge.UpdateActivePuppetCount()
 	return true
 }
 
@@ -2233,9 +2240,12 @@ func (portal *Portal) sendDeliveryReceipt(eventID id.EventID) {
 }
 
 func (portal *Portal) HandleMatrixMessage(sender *User, evt *event.Event) {
-	if !portal.HasRelaybot() && (
-		(portal.IsPrivateChat() && sender.JID != portal.Key.Receiver) ||
-			portal.sendMatrixConnectionError(sender, evt.ID)) {
+	if portal.bridge.PuppetActivity.isBlocked {
+		portal.log.Warnln("Bridge is blocking messages")
+		return
+	}
+	if !portal.HasRelaybot() && ((portal.IsPrivateChat() && sender.JID != portal.Key.Receiver) ||
+		portal.sendMatrixConnectionError(sender, evt.ID)) {
 		return
 	}
 	portal.log.Debugfln("Received event %s", evt.ID)

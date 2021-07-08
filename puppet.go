@@ -32,6 +32,11 @@ import (
 	"maunium.net/go/mautrix-whatsapp/database"
 )
 
+type PuppetActivity struct {
+	currentUserCount uint
+	isBlocked        bool
+}
+
 var userIDRegex *regexp.Regexp
 
 func (bridge *Bridge) ParsePuppetMXID(mxid id.UserID) (whatsapp.JID, bool) {
