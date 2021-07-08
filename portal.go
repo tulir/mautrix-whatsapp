@@ -1252,6 +1252,9 @@ func (portal *Portal) HasRelaybot() bool {
 		return false
 	} else if portal.hasRelaybot == nil {
 		val := portal.bridge.Relaybot.IsInPortal(portal.Key)
+		if !val {
+			val = portal.bridge.Relaybot.CreateUserPortal(database.PortalKeyWithMeta{PortalKey: portal.Key, InCommunity: false})
+		}
 		portal.hasRelaybot = &val
 	}
 	return *portal.hasRelaybot
